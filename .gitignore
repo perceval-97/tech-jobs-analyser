@@ -1,0 +1,6 @@
+
+# ignore file
+.env
+*.html
+*idea/
+*.xml
