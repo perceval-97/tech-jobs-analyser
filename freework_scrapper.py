@@ -1,5 +1,6 @@
 import requests
 import os
+import sys
 from dotenv import load_dotenv
 from loguru import logger
 from dataclasses import dataclass, field, fields, asdict
@@ -10,6 +11,9 @@ import html
 import re
 from pathlib import Path
 import csv
+
+logger.remove()
+logger.add(sys.stderr, level='INFO')
 
 load_dotenv()
 
@@ -103,7 +107,7 @@ def create_dataclass_instance(data) -> list[dataclass]:
         list[dataclass]: Liste d'instances dataclass (jobs)
     """
     
-    lst = []  # Créer la liste AVANT la boucle
+    lst = []
     
     for item in data:
         # Location
@@ -165,7 +169,7 @@ def create_dataclass_instance(data) -> list[dataclass]:
             logger.warning('No title')
             title = 'N/A'
         
-        # Créer l'instance Job DANS la boucle
+        # Créer l'instance Job
         job = Job(
             title=title,
             description=description,
@@ -220,41 +224,103 @@ def _append_lines_on_csv(Offre, rows):
     logger.success('Écriture de nouvelles lignes : TERMINÉ')
 
 
+def load_existing_jobs():
+    """Charge les signatures des jobs déjà présents dans le CSV
+    
+    Returns:
+        set: Ensemble des signatures (title|company|published_At)
+    """
+    if not CSV_FILE.exists():
+        return set()
+    
+    existing_signatures = set()
+    try:
+        with open(CSV_FILE, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                signature = f"{row['title']}|{row['company']}|{row['published_At']}"
+                existing_signatures.add(signature)
+        
+        logger.info(f"Chargement de {len(existing_signatures)} jobs existants")
+    except Exception as e:
+        logger.error(f"Erreur lors du chargement des jobs existants : {e}")
+    
+    return existing_signatures
+
+
 def main():
     """Fonction principale pour récupérer et enregistrer les offres"""
     page = 1
+    consecutive_duplicate_pages = 0  # Compteur de pages consécutives avec 100% de doublons
+    MAX_CONSECUTIVE_DUPLICATES = 2   # Nombre de pages consécutives identiques avant d'arrêter
     
     while True:
         logger.info(f'Récupération de la page {page}...')
         dta = fetch_page_data(page=page)
         
-        if dta and dta.get("hydra:member"):
-            # Vérifier que la liste n'est pas vide
-            if len(dta["hydra:member"]) == 0:
-                logger.info('Page vide, arrêt de la pagination')
-                break
-            
-            jobs = create_dataclass_instance(dta["hydra:member"])
-            
-            if CSV_FILE.exists():
-                _append_lines_on_csv(Job, jobs)
-            else:
-                _create_and_write_csv(Job, jobs)
-            
-            logger.info(f'Page {page} traitée : {len(jobs)} jobs enregistrés')
-            page += 1
-            
-            # Délai aléatoire entre les requêtes
-            delay = random.uniform(3, 10)
-            logger.info(f'Pause de {delay:.1f} secondes...')
-            time.sleep(delay)
-        else:
+        if not dta or not dta.get("hydra:member"):
             logger.info('Plus de données disponibles.')
             break
+        
+        # Créer les instances Job
+        jobs = create_dataclass_instance(dta["hydra:member"])
+        
+        # Charger les jobs existants pour détecter les doublons
+        existing_jobs = load_existing_jobs()
+        
+        # Créer les signatures des nouveaux jobs
+        new_signatures = [f"{j.title}|{j.company}|{j.published_At}" for j in jobs]
+        
+        # Calculer le pourcentage de doublons
+        duplicate_count = sum(1 for sig in new_signatures if sig in existing_jobs)
+        duplicate_percentage = (duplicate_count / len(new_signatures)) * 100 if new_signatures else 0
+        
+        logger.info(f"Page {page} : {duplicate_count}/{len(new_signatures)} doublons ({duplicate_percentage:.1f}%)")
+        
+        # Si 100% de doublons, incrémenter le compteur
+        if duplicate_percentage == 100:
+            consecutive_duplicate_pages += 1
+            logger.warning(f"Page entièrement dupliquée ({consecutive_duplicate_pages}/{MAX_CONSECUTIVE_DUPLICATES})")
+            
+            # Si on a atteint le seuil, on arrête
+            if consecutive_duplicate_pages >= MAX_CONSECUTIVE_DUPLICATES:
+                logger.info(f"Arrêt : {MAX_CONSECUTIVE_DUPLICATES} pages consécutives identiques détectées.")
+                break
+        else:
+            # Réinitialiser le compteur si on trouve de nouveaux jobs
+            consecutive_duplicate_pages = 0
+            
+            # Filtrer pour ne garder que les nouveaux jobs
+            new_jobs = [j for j, sig in zip(jobs, new_signatures) if sig not in existing_jobs]
+            
+            if new_jobs:
+                if CSV_FILE.exists():
+                    _append_lines_on_csv(Job, new_jobs)
+                else:
+                    _create_and_write_csv(Job, new_jobs)
+                
+                logger.success(f"Page {page} : {len(new_jobs)} nouveaux jobs enregistrés")
+            else:
+                logger.info(f"Page {page} : aucun nouveau job à enregistrer")
+        
+        page += 1
+        
+        # Délai aléatoire entre les requêtes
+        delay = random.uniform(3, 10)
+        logger.info(f'Pause de {delay:.1f} secondes...')
+        time.sleep(delay)
     
     logger.success(f'Scraping terminé ! Total de pages traitées : {page - 1}')
+    
+    # Statistiques finales
+    if CSV_FILE.exists():
+        count = 0
+        with open(CSV_FILE, 'r') as f:
+            for line in f:
+                count += 1
+        total_jobs = count - 1  # -1 pour le header # -1 pour le header
+        logger.success(f'Total de jobs uniques dans le CSV : {total_jobs}')
 
 
 if __name__ == '__main__':
     main()
-    
