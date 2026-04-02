@@ -5,13 +5,11 @@
 
 from sqlalchemy import create_engine, MetaData, Table, Integer, String, Column, Date, text, Float, UniqueConstraint
 from sqlalchemy.dialects.postgresql import insert
-from dotenv import load_dotenv
-import os 
 
-load_dotenv()
+
 
 def database_connexion(url):
-  engine = create_engine(url=url)
+  engine = create_engine(url)
   return engine
 
 
@@ -19,7 +17,7 @@ def create_table(engine):
   meta = MetaData()
   
   job_postings = Table('jobs', meta,
-    Column('id', Integer, primary_key=True),
+    Column('id', Integer, primary_key=True, autoincrement=True),
     Column('title', String),
     Column('description', String),
     Column('location', String),
@@ -55,14 +53,3 @@ def load_existing_datas(engine):
     datas = conn.execute(stmt)
   return {f"{row[0]}|{row[1]}|{row[2]}" for row in datas}
 
-
-
-if __name__ == '__main__'  :
-  # se connecter à la base de données
-  db_url = os.getenv('DATABASE_URL')
-  engine = database_connexion(db_url)
-  # create table 
-  table = create_table(engine)
-  # insert data
-  from scraper.freework_scrapper import main
-  main()

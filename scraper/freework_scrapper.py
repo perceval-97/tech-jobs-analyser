@@ -10,13 +10,19 @@ import random
 import html
 import re
 import pandas as pd
-from database.loader import load_existing_datas, database_connexion, insert_data_in_table, create_table
-
+from database.loader   import load_existing_datas, database_connexion, insert_data_in_table, create_table
 
 logger.remove()
 logger.add(sys.stderr, level='INFO')
 
 load_dotenv()
+
+
+DB_USER = os.getenv("DB_USER")
+DB_PASS = os.getenv("DB_PASS")
+DB_NAME = os.getenv("DB_NAME")
+
+DATABASE_URL = f"postgresql+psycopg2://{DB_USER}:{DB_PASS}@postgres:5432/{DB_NAME}"
 
 
 
@@ -30,7 +36,6 @@ HEADERS = {
 
 @dataclass
 class Job():
-    id: str
     title: str
     description: str
     location: str
@@ -113,10 +118,6 @@ def create_dataclass_instance(data) -> list[dataclass]:
     lst = []
     
     for item in data:
-        job_id = item.get('id')
-        if not job_id:
-            logger.warning('No id — job ignoré')
-            continue
 
         # Location
         location = item.get('location', {}).get('label')
@@ -179,7 +180,7 @@ def create_dataclass_instance(data) -> list[dataclass]:
         
         # Créer l'instance Job
         job = Job(
-            id=str(job_id),
+           
             title=title,
             description=description,
             location=location,
@@ -205,7 +206,7 @@ def main():
     page = 1
     consecutive_duplicate_pages = 0
     MAX_CONSECUTIVE_DUPLICATES = 2
-    db_url = os.getenv('DATABASE_URL')
+    db_url = DATABASE_URL
     
     engine = database_connexion(db_url)
     table = create_table(engine)

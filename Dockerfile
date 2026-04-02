@@ -1,7 +1,7 @@
 FROM python:3.13-slim
-WORKDIR /scraper
+WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 ENV PYTHONUNBUFFERED=1 
-CMD [ "python", "database/loader.py"]
+CMD  ["python", "-m", "scraper.freework_scrapper"]
