@@ -3,14 +3,12 @@ import os
 import sys
 from dotenv import load_dotenv
 from loguru import logger
-from dataclasses import dataclass, field, fields, asdict
+from dataclasses import dataclass, field, asdict
 from datetime import datetime
 import time
 import random
 import html
 import re
-from pathlib import Path
-from datetime import datetime, date
 import pandas as pd
 from database.loader import load_existing_datas, database_connexion, insert_data_in_table, create_table
 
