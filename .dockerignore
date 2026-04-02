@@ -1,8 +1,7 @@
 
 # ignore file
 .env
-*.html
-*idea/
+.idea
+__pycache__/
 *.xml
 .DS_Store
-__pycache__/

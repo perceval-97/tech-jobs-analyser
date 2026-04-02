@@ -10,12 +10,17 @@ import random
 import html
 import re
 from pathlib import Path
-import csv
+from datetime import datetime, date
+import pandas as pd
+from loader import load_existing_datas, database_connexion, insert_data_in_table, create_table
+
 
 logger.remove()
 logger.add(sys.stderr, level='INFO')
 
 load_dotenv()
+
+
 
 HEADERS = {
     "User-Agent": os.getenv("USER_AGENT"),
@@ -27,21 +32,21 @@ HEADERS = {
 
 @dataclass
 class Job():
+    id: str
     title: str
     description: str
     location: str
     candidate_profile: str
-    published_At: str
+    published_at: str
     experience_level: str
-    min_daily: int = field(default='N/A')
-    max_daily: int = field(default='N/A')
-    min_annual_salary: int = field(default='N/A')
-    max_annual_salary: int = field(default='N/A')
-    type: str = field(default='N/A')
+    min_daily: int = field(default=None)
+    max_daily: int = field(default=None)
+    min_annual_salary: int = field(default=None)
+    max_annual_salary: int = field(default=None)
+    type: str = field(default=None)
     platform: str = field(default='Freework')
-    company: str = field(default='N/A')
+    company: str = field(default=None)
 
-CSV_FILE = Path.cwd() / 'freework_jobs.csv'
 
 PARAMS = {
     "page": 1,
@@ -110,6 +115,11 @@ def create_dataclass_instance(data) -> list[dataclass]:
     lst = []
     
     for item in data:
+        job_id = item.get('id')
+        if not job_id:
+            logger.warning('No id — job ignoré')
+            continue
+
         # Location
         location = item.get('location', {}).get('label')
         if not location:
@@ -171,11 +181,12 @@ def create_dataclass_instance(data) -> list[dataclass]:
         
         # Créer l'instance Job
         job = Job(
+            id=str(job_id),
             title=title,
             description=description,
             location=location,
             candidate_profile=profile,
-            published_At=published_at,
+            published_at=published_at,
             experience_level=exp_level,
             min_daily=min_daily,
             max_daily=max_daily,
@@ -190,69 +201,17 @@ def create_dataclass_instance(data) -> list[dataclass]:
     return lst
 
 
-def _create_and_write_csv(Offre, rows):
-    """Crée un nouveau fichier CSV et écrit les données"""
-    logger.info('Création de fichier CSV')
-    
-    with open(CSV_FILE, 'w', newline='', encoding='utf-8') as f:
-        fieldnames = [f.name for f in fields(Offre)]
-        
-        # Écriture du header
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        
-        # Écriture des lignes
-        for item in rows:
-            writer.writerow(asdict(item))
-    
-    logger.success('Création & écriture de fichier : TERMINÉ')
-
-
-def _append_lines_on_csv(Offre, rows):
-    """Ajoute des lignes au fichier CSV existant"""
-    logger.info('Ajout de lignes au fichier CSV')
-    
-    with open(CSV_FILE, 'a', newline='', encoding='utf-8') as f:
-        fieldnames = [f.name for f in fields(Offre)]
-        
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        
-        # Écriture des lignes
-        for item in rows:
-            writer.writerow(asdict(item))
-    
-    logger.success('Écriture de nouvelles lignes : TERMINÉ')
-
-
-def load_existing_jobs():
-    """Charge les signatures des jobs déjà présents dans le CSV
-    
-    Returns:
-        set: Ensemble des signatures (title|company|published_At)
-    """
-    if not CSV_FILE.exists():
-        return set()
-    
-    existing_signatures = set()
-    try:
-        with open(CSV_FILE, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                signature = f"{row['title']}|{row['company']}|{row['published_At']}"
-                existing_signatures.add(signature)
-        
-        logger.info(f"Chargement de {len(existing_signatures)} jobs existants")
-    except Exception as e:
-        logger.error(f"Erreur lors du chargement des jobs existants : {e}")
-    
-    return existing_signatures
-
 
 def main():
     """Fonction principale pour récupérer et enregistrer les offres"""
     page = 1
-    consecutive_duplicate_pages = 0  # Compteur de pages consécutives avec 100% de doublons
-    MAX_CONSECUTIVE_DUPLICATES = 2   # Nombre de pages consécutives identiques avant d'arrêter
+    consecutive_duplicate_pages = 0
+    MAX_CONSECUTIVE_DUPLICATES = 2
+    db_url = os.getenv('DATABASE_URL')
+    
+    engine = database_connexion(db_url)
+    table = create_table(engine)
+    existing_jobs = load_existing_datas(engine)
     
     while True:
         logger.info(f'Récupération de la page {page}...')
@@ -262,65 +221,42 @@ def main():
             logger.info('Plus de données disponibles.')
             break
         
-        # Créer les instances Job
         jobs = create_dataclass_instance(dta["hydra:member"])
+        new_jobs = [j for j in jobs if f"{j.title}|{j.company}|{j.published_at}" not in existing_jobs]
+        duplicate_count = len(jobs) - len(new_jobs)
+        duplicate_percentage = (duplicate_count / len(jobs)) * 100 if jobs else 0
+
+        logger.info(f"Page {page} : {duplicate_count}/{len(jobs)} doublons ({duplicate_percentage:.1f}%)")
         
-        # Charger les jobs existants pour détecter les doublons
-        existing_jobs = load_existing_jobs()
-        
-        # Créer les signatures des nouveaux jobs
-        new_signatures = [f"{j.title}|{j.company}|{j.published_At}" for j in jobs]
-        
-        # Calculer le pourcentage de doublons
-        duplicate_count = sum(1 for sig in new_signatures if sig in existing_jobs)
-        duplicate_percentage = (duplicate_count / len(new_signatures)) * 100 if new_signatures else 0
-        
-        logger.info(f"Page {page} : {duplicate_count}/{len(new_signatures)} doublons ({duplicate_percentage:.1f}%)")
-        
-        # Si 100% de doublons, incrémenter le compteur
         if duplicate_percentage == 100:
             consecutive_duplicate_pages += 1
             logger.warning(f"Page entièrement dupliquée ({consecutive_duplicate_pages}/{MAX_CONSECUTIVE_DUPLICATES})")
             
-            # Si on a atteint le seuil, on arrête
             if consecutive_duplicate_pages >= MAX_CONSECUTIVE_DUPLICATES:
                 logger.info(f"Arrêt : {MAX_CONSECUTIVE_DUPLICATES} pages consécutives identiques détectées.")
                 break
         else:
-            # Réinitialiser le compteur si on trouve de nouveaux jobs
             consecutive_duplicate_pages = 0
             
-            # Filtrer pour ne garder que les nouveaux jobs
-            new_jobs = [j for j, sig in zip(jobs, new_signatures) if sig not in existing_jobs]
-            
             if new_jobs:
-                if CSV_FILE.exists():
-                    _append_lines_on_csv(Job, new_jobs)
-                else:
-                    _create_and_write_csv(Job, new_jobs)
-                
+                df = pd.DataFrame([asdict(j) for j in new_jobs])
+                insert_data_in_table(engine=engine, df=df, table=table)
+                # mettre à jour existing_jobs 
+                existing_jobs.update({f"{j.title}|{j.company}|{j.published_at}" for j in new_jobs})
                 logger.success(f"Page {page} : {len(new_jobs)} nouveaux jobs enregistrés")
             else:
                 logger.info(f"Page {page} : aucun nouveau job à enregistrer")
         
         page += 1
-        
-        # Délai aléatoire entre les requêtes
         delay = random.uniform(3, 10)
         logger.info(f'Pause de {delay:.1f} secondes...')
         time.sleep(delay)
     
     logger.success(f'Scraping terminé ! Total de pages traitées : {page - 1}')
-    
-    # Statistiques finales
-    if CSV_FILE.exists():
-        count = 0
-        with open(CSV_FILE, 'r') as f:
-            for line in f:
-                count += 1
-        total_jobs = count - 1  # -1 pour le header # -1 pour le header
-        logger.success(f'Total de jobs uniques dans le CSV : {total_jobs}')
+
+
 
 
 if __name__ == '__main__':
     main()
+
