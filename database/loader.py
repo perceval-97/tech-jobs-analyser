@@ -64,5 +64,5 @@ if __name__ == '__main__'  :
   # create table 
   table = create_table(engine)
   # insert data
-  from freework_scrapper import main
+  from scraper.freework_scrapper import main
   main()

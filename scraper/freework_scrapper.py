@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 from datetime import datetime, date
 import pandas as pd
-from loader import load_existing_datas, database_connexion, insert_data_in_table, create_table
+from database.loader import load_existing_datas, database_connexion, insert_data_in_table, create_table
 
 
 logger.remove()

@@ -1,7 +1,8 @@
 
 # ignore file
+.DS_Store
 .env
 .idea
 __pycache__/
 *.xml
-.DS_Store
+
