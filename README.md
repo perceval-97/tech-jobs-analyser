@@ -1,4 +1,4 @@
-# Indeed Analyser
+# Jobs Analyser
 
 A data pipeline that scrapes job offers from Freework and loads them
 into a PostgreSQL database to analyse the data engineering job market.
@@ -19,7 +19,7 @@ jobs-analyser/
 
 - **Python** — scraping and data processing
 - **PostgreSQL** — data storage
-- **SQLAlchemy** — ORM and database interactions
+- **SQLAlchemy** — Core and database interactions
 - **Docker / Docker Compose** — containerization
 
 ## Getting Started
